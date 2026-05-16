@@ -1,0 +1,63 @@
+name: showroom_prod
+
+services:
+
+  client:
+    container_name: "showroom_client_prod"
+    build:
+      context: client
+      dockerfile: Dockerfile
+    expose:
+      - 3000
+    environment:
+      - NODE_ENV=production
+    command: npm run start
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./client:/app
+      - /app/node_modules
+
+  server:
+    container_name: "showroom_server_prod"
+    restart: always
+    build: server
+    expose:
+      - 5000
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - NODE_ENV=production
+    command: npm run start:prod
+    volumes:
+      - ./uploads:/app/uploads
+
+  nginx:
+    image: nginx
+    restart: unless-stopped
+    container_name: "showroom_nginx_prod"
+    # ports убраны — шлюз (docker-gateway) занимает 80/443 на хосте
+    expose:
+      - "80"
+    depends_on:
+      - client
+      - server
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./client:/usr/share/nginx/html
+      - ./nginx/prod:/etc/nginx/conf.d
+      - ./uploads:/usr/share/nginx/uploads
+    networks:
+      - gateway_network   # шлюз проксирует сюда по имени showroom_nginx_prod
+      - default
+
+  # certbot убран — сертификатами управляет docker-gateway
+
+networks:
+  gateway_network:
+    external: true        # создаётся в docker-gateway/docker-compose.yml
+  default:
+    driver: bridge
