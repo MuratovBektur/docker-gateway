@@ -4,11 +4,19 @@
 
 ```
 Internet (80/443)
-      │
-   [nginx]  ← этот репозиторий
-   /     \
-app1    app2   ← ваши два репозитория
+        │
+     [nginx]  ← этот репозиторий
+    /   |   \
+app1  app2  admin  ← ваши репозитории / сервисы
 ```
+
+## Текущие домены
+
+| Домен | Куда |
+|-------|------|
+| `optom.store`, `www.optom.store` | `showroom_nginx_prod:80` |
+| `admin.optom.store` | `host.docker.internal:3011` |
+| `devoptom.fvds.ru` | `showroom_nginx_dev:80` |
 
 ## Структура файлов
 
@@ -18,82 +26,128 @@ docker-gateway/
 ├── nginx/
 │   ├── nginx.conf
 │   └── conf.d/
-│       ├── app1.conf           # домен → app1_service
-│       └── app2.conf           # домен → app2_service
+│       ├── app1.conf           # optom.store → showroom_nginx_prod
+│       ├── app2.conf           # devoptom.fvds.ru → showroom_nginx_dev
+│       └── admin.conf          # admin.optom.store → host.docker.internal:3011
 ├── certbot/
-│   ├── conf/                   # SSL-сертификаты (создаётся автоматически)
-│   └── www/                    # ACME-webroot (создаётся автоматически)
-├── init-ssl.sh                 # скрипт первоначального получения сертификатов
-└── example-app-docker-compose.yml  # пример для ваших репозиториев
+│   ├── conf/                   # SSL-сертификаты (в .gitignore)
+│   └── www/                    # ACME-webroot (в .gitignore)
+└── init-ssl.sh                 # скрипт первоначального получения сертификатов
 ```
 
-## Настройка
+## Настройка с нуля
 
-### Шаг 1. Отредактируйте домены в nginx/conf.d/
+### Шаг 1. Подключите каждый репозиторий к общей сети
 
-В `nginx/conf.d/app1.conf` замените:
-- `app1.example.com` → ваш домен для первого приложения
-- `app1_service` → имя сервиса из docker-compose репозитория 1
-
-В `nginx/conf.d/app2.conf` — аналогично для второго приложения.
-
-### Шаг 2. Подключите каждый репозиторий к общей сети
-
-В `docker-compose.yml` каждого из двух репозиториев добавьте (см. `example-app-docker-compose.yml`):
+В `docker-compose.yml` каждого приложения:
 
 ```yaml
 services:
-  your_service:
-    ...
+  nginx:                      # имя контейнера должно совпадать с proxy_pass в conf.d/
+    expose:
+      - "80"                  # НЕ ports: — только expose
     networks:
       - gateway_network
       - default
 
 networks:
   gateway_network:
-    external: true
+    external: true            # сеть создаётся шлюзом
   default:
     driver: bridge
 ```
 
-### Шаг 3. Получите SSL-сертификаты (зависимые приложения не нужны)
+> **Важно:** внутренний nginx приложения должен слушать только порт 80 без SSL и без
+> HTTP→HTTPS редиректов. SSL терминируется на шлюзе.
 
-> DNS-записи всех доменов должны уже указывать на ваш сервер.
-> Приложения запускать не нужно — скрипт сам стартует nginx и получает сертификаты.
+### Шаг 2. Настройте nginx/conf.d/
+
+В каждом `.conf` файле замените:
+- домен (`optom.store`) → ваш домен
+- имя upstream (`showroom_nginx_prod`) → `container_name` вашего nginx-контейнера
+
+### Шаг 3. Получите SSL-сертификаты
+
+> Требования перед запуском:
+> - DNS всех доменов указывает на этот сервер
+> - Порт 80 доступен снаружи
 
 ```bash
 chmod +x init-ssl.sh
-
-# Каждая группа в кавычках — один сертификат (первый домен = имя директории).
 ./init-ssl.sh your@email.com \
   "optom.store,www.optom.store,admin.optom.store" \
   "devoptom.fvds.ru"
 ```
 
-Скрипт выполнит:
-1. Создаст временные self-signed сертификаты (чтобы nginx мог стартовать)
-2. Запустит gateway nginx
-3. Получит реальные сертификаты от Let's Encrypt
-4. Перезагрузит nginx
+Скрипт автоматически:
+1. Останавливает системный nginx если он занимает порт 80
+2. Открывает порты 80/443 в iptables
+3. Временно переключает nginx в HTTP-only режим
+4. Получает сертификаты от Let's Encrypt
+5. Восстанавливает полный конфиг с SSL
+6. Сохраняет правила iptables
 
-### Шаг 4. Запустите зависимые приложения
+Если домен упал по лимиту Let's Encrypt — скрипт не ломает остальные,
+а выводит команду для повтора.
+
+### Шаг 4. Запустите приложения
 
 ```bash
-# В каждом из двух репозиториев (сеть gateway_network уже создана скриптом):
-docker compose up -d
+# Сеть gateway_network уже создана скриптом
+cd ../showroom && docker compose up -d
+cd ../showroom-dev && docker compose up -d
 ```
 
-Убедиться что сеть существует:
+## Добавление нового домена
+
+1. Создайте `nginx/conf.d/app3.conf` по аналогии с существующими
+2. Запустите `init-ssl.sh` — он сам откроет порты, переключит nginx в HTTP-only и получит сертификат:
 ```bash
-docker network ls | grep gateway_network
+./init-ssl.sh your@email.com \
+  "optom.store,www.optom.store,admin.optom.store" \
+  "devoptom.fvds.ru" \
+  "new.domain.com"
 ```
+> Передайте все домены включая уже существующие — для них сертификаты будут пропущены
+> (certbot не перевыпускает если до истечения больше 30 дней).
+
+## Получить сертификат для домена вручную (без init-ssl.sh)
+
+Используйте если:
+- лимит Let's Encrypt ещё не сбросился и нужно добавить только один домен
+- не хотите кратковременного даунтайма остальных сайтов
+- шлюз уже работает, порты открыты
+
+```bash
+# nginx уже запущен и работает — просто запускаем certbot
+docker run --rm \
+  -v $(pwd)/certbot/conf:/etc/letsencrypt \
+  -v $(pwd)/certbot/www:/var/www/certbot \
+  --network gateway_network \
+  certbot/certbot certonly \
+  --webroot --webroot-path=/var/www/certbot \
+  --email your@email.com --agree-tos --no-eff-email \
+  -d new.domain.com
+
+# Подключить конфиг и перезагрузить без рестарта
+docker compose exec nginx nginx -s reload
+```
+
+Если лимит ещё не сбросился — узнать когда:
+```bash
+docker run --rm \
+  -v $(pwd)/certbot/conf:/etc/letsencrypt \
+  certbot/certbot certificates
+```
+Дату лимита также показывает [https://crt.sh/?q=fvds.ru](https://crt.sh/?q=fvds.ru) — поле `Not Before` у последних записей.
 
 ## Обновление сертификатов
 
-Certbot автоматически обновляет сертификаты каждые 12 часов (если до истечения осталось < 30 дней). Nginx перезагружает конфигурацию каждые 6 часов.
+Certbot автоматически обновляет сертификаты каждые 12 часов.
+Nginx перезагружает конфиг каждые 6 часов.
 
-## Добавление нового приложения
+## Известные особенности сервера
 
-1. Создайте `nginx/conf.d/app3.conf` по аналогии
-2. Получите сертификат: `docker compose run --rm certbot certonly --webroot --webroot-path=/var/www/certbot -d app3.example.com`
-3. Перезагрузите nginx: `docker compose exec nginx nginx -s reload`
+- **Системный nginx** — отключён (`systemctl disable nginx`), иначе занимает порт 80
+- **ISPManager firewall** — блокирует порты 80/443; скрипт добавляет правила iptables автоматически
+- **Let's Encrypt лимит** — `fvds.ru` — shared-домен, возможен лимит 50 сертификатов/неделю на весь домен

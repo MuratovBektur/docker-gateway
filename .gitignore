@@ -1,0 +1,5 @@
+# Сертификаты и приватные ключи — никогда не коммитить
+certbot/conf/
+
+# Webroot для ACME-challenge — временные файлы
+certbot/www/
