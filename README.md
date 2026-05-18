@@ -17,6 +17,7 @@ app1  app2  admin  ← ваши репозитории / сервисы
 | `optom.store`, `www.optom.store` | `showroom_nginx_prod:80` |
 | `admin.optom.store` | `host.docker.internal:3011` |
 | `devoptom.fvds.ru` | `showroom_nginx_dev:80` |
+| `mirjeans.kg`, `www.mirjeans.kg` | `mir-jeans_nginx_prod:80` |
 
 ## Структура файлов
 
