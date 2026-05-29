@@ -1,6 +1,6 @@
 # Docker Gateway — Nginx + Certbot
 
-Единая точка входа для двух приложений на одном IP-адресе.
+Единая точка входа для нескольких приложений на одном IP-адресе.
 
 ```
 Internet (80/443)
@@ -18,6 +18,7 @@ app1  app2  admin  ← ваши репозитории / сервисы
 | `admin.optom.store` | `host.docker.internal:3011` |
 | `devoptom.fvds.ru` | `showroom_nginx_dev:80` |
 | `mirjeans.kg`, `www.mirjeans.kg` | `mir-jeans_nginx_prod:80` |
+| `marcel.kg`, `www.marcel.kg` | `marcel-clothes_nginx_prod:80` |
 
 ## Структура файлов
 
@@ -29,7 +30,9 @@ docker-gateway/
 │   └── conf.d/
 │       ├── app1.conf           # optom.store → showroom_nginx_prod
 │       ├── app2.conf           # devoptom.fvds.ru → showroom_nginx_dev
-│       └── admin.conf          # admin.optom.store → host.docker.internal:3011
+│       ├── admin.conf          # admin.optom.store → host.docker.internal:3011
+│       ├── mirjeans.conf       # mirjeans.kg → mir-jeans_nginx_prod
+│       └── marcel.conf         # marcel.kg → marcel-clothes_nginx_prod
 ├── certbot/
 │   ├── conf/                   # SSL-сертификаты (в .gitignore)
 │   └── www/                    # ACME-webroot (в .gitignore)
